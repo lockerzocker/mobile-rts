@@ -1,0 +1,118 @@
+index.html
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mobile RTS</title>
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+
+<style>
+body { margin:0; overflow:hidden; background:#0a0f12; }
+</style>
+</head>
+
+<body>
+
+<script>
+
+let ws;
+let state={};
+let mode="build";
+
+/* CONNECT */
+ws=new WebSocket("ws://localhost:8080");
+
+ws.onmessage=(m)=>{
+  let d=JSON.parse(m.data);
+  if(d.type==="state") state=d.state;
+};
+
+/* SEND */
+function send(d){
+  ws.send(JSON.stringify(d));
+}
+
+/* GAME */
+class Game extends Phaser.Scene{
+
+  create(){
+
+    this.add.text(10,10,"MOBILE RTS",{fill:"#fff"});
+
+    /* TOUCH INPUT */
+    this.input.on("pointerdown",(p)=>{
+
+      let x=Math.floor(p.x/50);
+      let y=Math.floor(p.y/50);
+
+      if(mode==="build"){
+        send({type:"build",build:"farm",x,y});
+      }
+
+      if(mode==="spawn"){
+        send({type:"spawn",unit:"soldier",x,y});
+      }
+
+    });
+
+    /* CAMERA DRAG */
+    this.input.on("pointermove",(p)=>{
+      if(p.isDown){
+        this.cameras.main.scrollX -= p.velocity.x*0.3;
+        this.cameras.main.scrollY -= p.velocity.y*0.3;
+      }
+    });
+
+    /* UI BUTTONS */
+    let b1=this.add.text(10,40,"BUILD",{fill:"#0f0"})
+      .setInteractive()
+      .on("pointerdown",()=>mode="build");
+
+    let b2=this.add.text(80,40,"SPAWN",{fill:"#f00"})
+      .setInteractive()
+      .on("pointerdown",()=>mode="spawn");
+
+  }
+
+  update(){
+
+    this.children.removeAll();
+
+    if(state.units){
+      state.units.forEach(u=>{
+        this.add.circle(u.x*50,u.y*50,10,0xff4444);
+      });
+    }
+
+    if(state.buildings){
+      state.buildings.forEach(b=>{
+        this.add.rectangle(b.x*50,b.y*50,20,20,0x00ff00);
+      });
+    }
+
+  }
+
+}
+
+new Phaser.Game({
+  type:Phaser.AUTO,
+  width:innerWidth,
+  height:innerHeight,
+  scene:Game,
+  scale:{
+    mode:Phaser.Scale.FIT,
+    autoCenter:Phaser.Scale.CENTER_BOTH
+  }
+});
+
+/* ROOM */
+window.createRoom=()=>send({type:"create"});
+window.joinRoom=(id)=>send({type:"join",id});
+
+</script>
+
+</body>
+</html>
