@@ -1,0 +1,127 @@
+const WebSocket = require("ws");
+const wss = new WebSocket.Server({ port: 8080 });
+
+const BUILD = {
+  farm: { cost: 300, inc: 10, time: 10000 },
+  mine: { cost: 1200, inc: 40, time: 20000 }
+};
+
+const UNITS = {
+  soldier: { cost: 150, hp: 120, atk: 25, range: 1 },
+  tank: { cost: 600, hp: 500, atk: 80, range: 2 }
+};
+
+let rooms = {};
+
+/* ROOM */
+function createRoom(){
+  let id=Math.random().toString(36).slice(2,6);
+  rooms[id]={
+    players:[],
+    gold:{},
+    units:[],
+    buildings:[]
+  };
+  return id;
+}
+
+/* GAME LOOP */
+setInterval(()=>{
+
+  Object.values(rooms).forEach(r=>{
+
+    /* ECONOMY */
+    r.buildings.forEach(b=>{
+      if(!r.gold[b.owner]) r.gold[b.owner]=500;
+      r.gold[b.owner]+=b.inc;
+    });
+
+    /* COMBAT */
+    r.units.forEach(a=>{
+      r.units.forEach(b=>{
+        if(a.owner===b.owner) return;
+
+        let d=Math.abs(a.x-b.x)+Math.abs(a.y-b.y);
+
+        if(d<=a.range){
+          b.hp-=a.atk;
+        }
+      });
+    });
+
+    r.units = r.units.filter(u=>u.hp>0);
+
+    /* SYNC */
+    r.players.forEach(p=>{
+      p.send(JSON.stringify({
+        type:"state",
+        state:r
+      }));
+    });
+
+  });
+
+},400);
+
+/* WS */
+wss.on("connection",(ws)=>{
+
+  ws.on("message",(m)=>{
+    let d=JSON.parse(m);
+
+    let r=rooms[ws.room];
+
+    if(d.type==="create"){
+      let id=createRoom();
+      rooms[id].players.push(ws);
+      ws.room=id;
+      ws.send(JSON.stringify({type:"room",id}));
+    }
+
+    if(d.type==="join"){
+      rooms[d.id].players.push(ws);
+      ws.room=d.id;
+    }
+
+    r=rooms[ws.room];
+    if(!r) return;
+
+    if(d.type==="build"){
+      let b=BUILD[d.build];
+      if(!b) return;
+
+      if((r.gold[ws.room]||500)<b.cost) return;
+
+      r.gold[ws.room]=(r.gold[ws.room]||500)-b.cost;
+
+      setTimeout(()=>{
+        r.buildings.push({
+          x:d.x,y:d.y,
+          inc:b.inc,
+          owner:ws.room
+        });
+      },b.time);
+    }
+
+    if(d.type==="spawn"){
+      let u=UNITS[d.unit];
+      if(!u) return;
+
+      if((r.gold[ws.room]||500)<u.cost) return;
+
+      r.gold[ws.room]-=u.cost;
+
+      r.units.push({
+        x:d.x,y:d.y,
+        hp:u.hp,
+        atk:u.atk,
+        range:u.range,
+        owner:ws.room
+      });
+    }
+
+  });
+
+});
+
+console.log("SERVER RUNNING");
